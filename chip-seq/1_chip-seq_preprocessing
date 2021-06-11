@@ -1,7 +1,7 @@
 #------------------------------------------------------------------------------------
 # Aim: preprocessing of 50-nt single-end ChIP-seq data for further analysis
 # Author: Dae Kwan Ko (dkko@msu.edu)
-# Last modified: 01-11-2021
+# Last modified: 06-11-2021
 # Usage: shown below
 #------------------------------------------------------------------------------------
 
