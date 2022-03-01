@@ -1,1 +1,37 @@
+#------------------------------------------------------------------------------------
+# Aim: call peaks and obtain reproducible peaks
+# Author: Dae Kwan Ko (dkko@msu.edu)
+# Last modified: 03-02-2022
+# Usage: shown below
+#------------------------------------------------------------------------------------
 
+# IDR also requires a peak list from a pooled sample
+# both replicates needs to be pooled for this purpose and subjected to peak calling
+
+### merge replicates and keep in a sub-directory
+samtools merge ${OUTPUT} ${LINE}1_*_TAIR10_onlyChr.final.bam ${LINE}2_*_TAIR10_onlyChr.final.bam
+
+### sort the pooled bam files
+samtools sort -o ${OUTPUT} ${INPUT}
+
+### index the pooled bam files
+samtools index ${INPUT}
+
+### peak calling using macs2
+macs2 callpeak -t ${INPUT} -c ${CTRL} -f BAM -g 1.19e8 --keep-dup=1 --name G${LINE} \
+--bdg --call-summits --pvalue=1e-2 --nomodel --shift 150 --extsize 300 --outdir ${OUTPUT}
+
+### idr
+idr --samples ${INPUT_1} ${INPUT_2} --peak-list ${POOLED_PEAK_FILE} --input-file-type narrowPeak --output-file ${IDR_OUTPUT} \
+--rank signal.value --soft-idr-threshold ${IDR_THRESH} --plot --use-best-multisummit-IDR
+
+### get peaks passing IDR threshold of 10%
+awk 'BEGIN{OFS="\t"} $12>='"${IDR_THRESH_TRANSFORMED}"' {print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' ${IDR_OUTPUT} | sort -k 1,1 -k2,2n | uniq > ${FILT_OUTPUT}
+
+### identify Tm-specific peaks
+# filter out Tm-peaks overlapped with >30% DMSO-peaks
+bedtools intersect -v -f 0.30 -a ${Tm_PEAKS} -b ${DMSO_PEAKS} | sort -k 1,1 -k2,2n | uniq > ${OUTPUT}
+# filter in Tm-peaks overlapped, yet with >3-fold -log10(pvalue) than DMSO-peaks
+bedtools intersect -wa -wb -f 0.30 -a ${Tm_PEAKS} -b ${DMSO_PEAKS} | awk 'BEGIN{OFS="\t"} $8>($18*3) {print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10}' | sort -k 1,1 -k2,2n | uniq > ${OUTPUT}
+# merge filtered peak list to create the final list of peaks
+cat G.IDR0.10.Tm_specific_0.3f.narrowPeak G.IDR0.10.Tm_specific_00.3f_overlap3F.narrowPeak | sort -k 1,1 -k2,2n | uniq > GBF2.final.Tm_specific.narrowPeak
