@@ -1,0 +1,254 @@
+#------------------------------------------------------------------------------------
+# Aim: to identify differentially expressed genes
+# Author: Dae Kwan Ko (dkko@msu.edu)
+# Last modified: 06-11-2021
+# Usage: shown below
+#------------------------------------------------------------------------------------
+
+## R Markdown
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "DIRECTORY")
+rm(list=ls()) # Remove everything from the R environment. Important if you have some variables saved already
+```
+
+## Load the required libraries.
+```{r loadLibs}
+rm(list=ls()) # Remove everything from the R environment. Important if you have some variables saved already
+require(limma)
+require(edgeR)
+require(DESeq2)
+require(RColorBrewer)
+require(gplots)
+require(ggplot2)
+require(apeglm)
+require(FactoMineR)
+require(factoextra)
+require(digest)
+require(dplyr)
+```
+
+```{r Read files into memory}
+myFiles <- list.files(pattern = glob2rx("*htseq.txt"), 
+                      all.files = T, 
+                      full.names = F) # Create a vector containing the names of your files
+myFiles # myFiles is the list of files in your working directory which match the pattern *_htseq.txt.
+myData <- lapply(myFiles, # Use list apply to apply the native R functi on read.table() to myFiles
+                 read.table, colClasses=c("character", "numeric"))
+myData
+# Name the elements of myData
+names(myData) <-c("EtOH_01h_rep1","EtOH_01h_rep2","EtOH_04h_rep1","EtOH_04h_rep2","EtOH_08h_rep1","EtOH_08h_rep2","EtOH_12h_rep1","EtOH_12h_rep2","EtOH_24h_rep1","EtOH_24h_rep2","EtOH_36h_rep1","EtOH_36h_rep2","EtOH_60h_rep1","EtOH_60h_rep2",
+                  "tABA_01h_rep1","tABA_01h_rep2","tABA_04h_rep1","tABA_04h_rep2","tABA_08h_rep1","tABA_08h_rep2","tABA_12h_rep1","tABA_12h_rep2","tABA_24h_rep1","tABA_24h_rep2","tABA_36h_rep1","tABA_36h_rep2","tABA_60h_rep1","tABA_60h_rep2")
+summary(myData)
+head(myData$EtOH_01h_rep1)
+tail(myData$EtOH_01h_rep1) # Notice there is some metadata printed there that we should remove or those will be counted as gene names and expression counts
+rmLines <- function(x){x <- x[1:28775,]} ## This is a really quick and dirty solution. This is a function to select the first xxxxx lines.
+myData <- lapply(myData, rmLines) #Apply the rmLines() function to each object in the myData list.
+nrow(myData$"EtOH_01h_rep1") # Check to see how many lines there are in each element of myData now. There should be only 32439
+```
+
+```{r Consolidate data}
+# We need to create a file with the gene counts from all samples in columns an the gene ID in a single column. We will make a data frame with named rows corresponding to genes and columns corresponding to tissue type.
+counts <- data.frame(row.names=myData$"EtOH_01h_rep1"[,1], 
+                     "EtOH_01h_rep1"=myData$"EtOH_01h_rep1"[,2], "EtOH_01h_rep2"=myData$"EtOH_01h_rep2"[,2], 
+                     "EtOH_04h_rep1"=myData$"EtOH_04h_rep1"[,2], "EtOH_04h_rep2"=myData$"EtOH_04h_rep2"[,2],
+                     "EtOH_08h_rep1"=myData$"EtOH_08h_rep1"[,2], "EtOH_08h_rep2"=myData$"EtOH_08h_rep2"[,2],
+                     "EtOH_12h_rep1"=myData$"EtOH_12h_rep1"[,2], "EtOH_12h_rep2"=myData$"EtOH_12h_rep2"[,2],
+                     "EtOH_24h_rep1"=myData$"EtOH_24h_rep1"[,2], "EtOH_24h_rep2"=myData$"EtOH_24h_rep2"[,2],
+                     "EtOH_36h_rep1"=myData$"EtOH_36h_rep1"[,2], "EtOH_36h_rep2"=myData$"EtOH_36h_rep2"[,2],
+                     "EtOH_60h_rep1"=myData$"EtOH_60h_rep1"[,2], "EtOH_60h_rep2"=myData$"EtOH_60h_rep2"[,2],
+                     "tABA_01h_rep1"=myData$"tABA_01h_rep1"[,2], "tABA_01h_rep2"=myData$"tABA_01h_rep2"[,2], 
+                     "tABA_04h_rep1"=myData$"tABA_04h_rep1"[,2], "tABA_04h_rep2"=myData$"tABA_04h_rep2"[,2],
+                     "tABA_08h_rep1"=myData$"tABA_08h_rep1"[,2], "tABA_08h_rep2"=myData$"tABA_08h_rep2"[,2],
+                     "tABA_12h_rep1"=myData$"tABA_12h_rep1"[,2], "tABA_12h_rep2"=myData$"tABA_12h_rep2"[,2],
+                     "tABA_24h_rep1"=myData$"tABA_24h_rep1"[,2], "tABA_24h_rep2"=myData$"tABA_24h_rep2"[,2],
+                     "tABA_36h_rep1"=myData$"tABA_36h_rep1"[,2], "tABA_36h_rep2"=myData$"tABA_36h_rep2"[,2],
+                     "tABA_60h_rep1"=myData$"tABA_60h_rep1"[,2], "tABA_60h_rep2"=myData$"tABA_60h_rep2"[,2])
+head(counts)
+
+# Remove genes with no expression in any samples
+# first, select columns for pair-wise comparisons 
+counts_01h <- counts[,c("EtOH_01h_rep1","EtOH_01h_rep2","tABA_01h_rep1","tABA_01h_rep2")]
+counts_04h <- counts[,c("EtOH_04h_rep1","EtOH_04h_rep2","tABA_04h_rep1","tABA_04h_rep2")]
+counts_08h <- counts[,c("EtOH_08h_rep1","EtOH_08h_rep2","tABA_08h_rep1","tABA_08h_rep2")]
+counts_12h <- counts[,c("EtOH_12h_rep1","EtOH_12h_rep2","tABA_12h_rep1","tABA_12h_rep2")]
+counts_24h <- counts[,c("EtOH_24h_rep1","EtOH_24h_rep2","tABA_24h_rep1","tABA_24h_rep2")]
+counts_36h <- counts[,c("EtOH_36h_rep1","EtOH_36h_rep2","tABA_36h_rep1","tABA_36h_rep2")]
+counts_60h <- counts[,c("EtOH_60h_rep1","EtOH_60h_rep2","tABA_60h_rep1","tABA_60h_rep2")]
+
+# Let's remove all genes with 0 expression in every sample. Evaluate the sum of each row and save to a new vector called geneTotals.
+geneTotals_01h <- rowSums(counts_01h) 
+geneTotals_04h <- rowSums(counts_04h)
+geneTotals_08h <- rowSums(counts_08h)
+geneTotals_12h <- rowSums(counts_12h)
+geneTotals_24h <- rowSums(counts_24h) 
+geneTotals_36h <- rowSums(counts_36h)
+geneTotals_60h <- rowSums(counts_60h) 
+
+# Subset the rows where the gene Total is greater than 60
+countsNonZero_01h <- counts_01h[geneTotals_01h > 60,]
+countsNonZero_04h <- counts_04h[geneTotals_04h > 60,]
+countsNonZero_08h <- counts_08h[geneTotals_08h > 60,]
+countsNonZero_12h <- counts_12h[geneTotals_12h > 60,]
+countsNonZero_24h <- counts_24h[geneTotals_24h > 60,]
+countsNonZero_36h <- counts_36h[geneTotals_36h > 60,]
+countsNonZero_60h <- counts_60h[geneTotals_60h > 60,]
+
+# See how many genes are left in the analysis
+nrow(countsNonZero_01h) # 18985
+nrow(countsNonZero_04h) # 19093
+nrow(countsNonZero_08h) # 18909
+nrow(countsNonZero_12h) # 19055
+nrow(countsNonZero_24h) # 18599
+nrow(countsNonZero_36h) # 18477
+nrow(countsNonZero_60h) # 18350
+```
+
+
+```{r Start preparing your experimental design info}
+# define the columns of our data set according to their treatment type, the factor in this experiment. Arbitrarily named as ctrl and stress, but these two samples are not in the relationship.
+treatments <- as.factor(c(rep("ctrl",2),rep("stress",2)))
+
+# Create the experimental design with time as the factor.
+design <- model.matrix(~treatments)
+
+# Make a multidimensional scaling plot to quickly summarize the similarity of your samples.
+dge <- DGEList(counts=countsNonZero_01h, 
+               group=treatments, 
+               remove.zeros=T) 
+plotMDS(dge,main="MDS",pch = 19,
+        col=c(rep("black",2),rep("red",2)))
+
+```
+
+```{r DEDeq.object}
+# treatments was our column labels organized as factors
+colData <- DataFrame(treatments)
+
+# Take a look at the colData "data.frame" object. This is called S4 class object in R specifically designed to be operated on differently by various functions, similar to object oriented programming. It is not a normal data.frame.            
+colData
+
+# Compare to tissues object. This is an S3 class object, the simplest data type in R.
+treatments
+
+# Create the DESeq object from the counts matrix we made that has > 60 exprssed genes, uses the new colData object we made to label the treatments, and the same experimental design using treatments as the nominal categories. 
+dds_01h <- DESeqDataSetFromMatrix(countsNonZero_01h, colData=colData, design=formula(~treatments))
+dds_04h <- DESeqDataSetFromMatrix(countsNonZero_04h, colData=colData, design=formula(~treatments))
+dds_08h <- DESeqDataSetFromMatrix(countsNonZero_08h, colData=colData, design=formula(~treatments))
+dds_12h <- DESeqDataSetFromMatrix(countsNonZero_12h, colData=colData, design=formula(~treatments))
+dds_24h <- DESeqDataSetFromMatrix(countsNonZero_24h, colData=colData, design=formula(~treatments))
+dds_36h <- DESeqDataSetFromMatrix(countsNonZero_36h, colData=colData, design=formula(~treatments))
+dds_60h <- DESeqDataSetFromMatrix(countsNonZero_60h, colData=colData, design=formula(~treatments))
+
+# Check the metadata on your DESeq data set object.
+dds_01h
+dds_04h
+dds_08h
+dds_12h
+dds_24h
+dds_36h
+dds_60h
+
+# Estimate size factors to scale the columns of the count matrix, estimate dispersions, and fit model
+dds_01h <- DESeq(dds_01h)
+dds_04h <- DESeq(dds_04h)
+dds_08h <- DESeq(dds_08h)
+dds_12h <- DESeq(dds_12h)
+dds_24h <- DESeq(dds_24h)
+dds_36h <- DESeq(dds_36h)
+dds_60h <- DESeq(dds_60h)
+
+```
+
+```{r plotting}
+# Look at the top level of the DESeq data set.
+slotNames(dds_01h)
+
+# We can look at the contents of these using the **@** symbol instead of **$** which is what would be used for an S3 class object.
+dds_01h@colData
+dds_04h@colData
+dds_08h@colData
+dds_12h@colData
+dds_24h@colData
+dds_36h@colData
+dds_60h@colData
+
+# Check out the structure of the DESeq data set. You can see it is quite complex, and you can use this print out to help you subset any information from the data set.
+str(dds_01h)
+str(dds_04h)
+str(dds_08h)
+str(dds_12h)
+str(dds_24h)
+str(dds_36h)
+str(dds_60h)
+
+# Plot gene dispersion correlations and other trends
+# Dispersion shows how much the variance for each gene deviates from the mean.
+geneDispersion_01h <- dds_01h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_04h <- dds_04h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_08h <- dds_08h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_12h <- dds_12h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_24h <- dds_24h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_36h <- dds_36h@rowRanges@elementMetadata@listData$dispGeneEst
+geneDispersion_60h <- dds_60h@rowRanges@elementMetadata@listData$dispGeneEst
+
+treatments_01h <- dds_01h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_04h <- dds_04h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_08h <- dds_08h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_12h <- dds_12h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_24h <- dds_24h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_36h <- dds_36h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+treatments_60h <- dds_60h@rowRanges@elementMetadata@listData$treatments_stress_vs_ctrl
+
+# See how fold change corresponds to dispersion
+plot(treatments_01h, geneDispersion_01h, xlab="Fold change of expression (A/b)", 
+     ylab="Gene dispersion estimate", pch=19, cex=0.4)
+# Check the trend of normalized counts to see how it corresponds to the dispersion estimate.
+plotDispEsts(dds_01h)
+
+# MA-plot
+res_01h <- results(dds_01h)
+plotMA(res_01h, ylim=c(-6,6), alpha = 0.05) #with shrinking
+plotMA(dds_01h, ylim=c(-6,6), alpha = 0.05) #without shrinking
+```
+
+```{r exporting}
+# Get results table from the dds object
+dds_01h_pv <- results(dds_01h)
+dds_04h_pv <- results(dds_04h)
+dds_08h_pv <- results(dds_08h)
+dds_12h_pv <- results(dds_12h)
+dds_24h_pv <- results(dds_24h)
+dds_36h_pv <- results(dds_36h)
+dds_60h_pv <- results(dds_60h)
+
+# Removed rows with "NA" in P- value, which DESeq inputs when it detects extreme outliers in samples u sing Cook's distance calculation. These may have a significant effect on the model, or, perhaps the model we used (~treatments) does not accou nt for some property of the data...
+dds_01h_pv <- dds_01h_pv[!(is.na(dds_01h_pv$padj)),] 
+dds_04h_pv <- dds_04h_pv[!(is.na(dds_04h_pv$padj)),] 
+dds_08h_pv <- dds_08h_pv[!(is.na(dds_08h_pv$padj)),] 
+dds_12h_pv <- dds_12h_pv[!(is.na(dds_12h_pv$padj)),] 
+dds_24h_pv <- dds_24h_pv[!(is.na(dds_24h_pv$padj)),] 
+dds_36h_pv <- dds_36h_pv[!(is.na(dds_36h_pv$padj)),] 
+dds_60h_pv <- dds_60h_pv[!(is.na(dds_60h_pv$padj)),] 
+
+# List of genes that were differentially expressed
+deseq2_gene_list_01h <- as.data.frame(dds_01h_pv[dds_01h_pv$padj < 0.05,])
+deseq2_gene_list_04h <- as.data.frame(dds_04h_pv[dds_04h_pv$padj < 0.05,])
+deseq2_gene_list_08h <- as.data.frame(dds_08h_pv[dds_08h_pv$padj < 0.05,])
+deseq2_gene_list_12h <- as.data.frame(dds_12h_pv[dds_12h_pv$padj < 0.05,])
+deseq2_gene_list_24h <- as.data.frame(dds_24h_pv[dds_24h_pv$padj < 0.05,])
+deseq2_gene_list_36h <- as.data.frame(dds_36h_pv[dds_36h_pv$padj < 0.05,])
+deseq2_gene_list_60h <- as.data.frame(dds_60h_pv[dds_60h_pv$padj < 0.05,])
+
+# export data
+write.table(deseq2_gene_list_01h, "deseq2_gene_list_0.05_padj_01h.txt", sep="\t")
+write.table(deseq2_gene_list_04h, "deseq2_gene_list_0.05_padj_04h.txt", sep="\t")
+write.table(deseq2_gene_list_08h, "deseq2_gene_list_0.05_padj_08h.txt", sep="\t")
+write.table(deseq2_gene_list_12h, "deseq2_gene_list_0.05_padj_12h.txt", sep="\t")
+write.table(deseq2_gene_list_24h, "deseq2_gene_list_0.05_padj_24h.txt", sep="\t")
+write.table(deseq2_gene_list_36h, "deseq2_gene_list_0.05_padj_36h.txt", sep="\t")
+write.table(deseq2_gene_list_60h, "deseq2_gene_list_0.05_padj_60h.txt", sep="\t")
+
+# check files and remove genes with < 1 log2FC
+```
