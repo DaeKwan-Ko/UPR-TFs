@@ -22,3 +22,29 @@ cutadapt -f fastq -q 20,20 -u 2 -m 30 -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
 
 ### fastqc of cleaned data
 fastqc -o ${OUTPUT} -f fastq ${INPUT}
+
+### mapping to TAIR10
+bowtie -n 2 -m 3 -k 1 --threads 5 --best --chunkmbs 256 -q -S ${GENOME} ${INPUT} > ${OUTPUT}
+
+### flgastat
+samtools flagstat ${INPUT} > ${OUTPUT}
+
+### convert bam and keep only mapped reads
+samtools view -S ${INPUT} -bF4 -h -o ${OUTPUT} -@ 5
+
+### position sort: markdup needs position order
+samtools sort -o ${OUTPUT} ${INPUT}
+
+### markdup
+samtools markdup -r -S ${INPUT} ${OUTPUT}
+
+### flgastat
+samtools flagstat ${INPUT} > ${OUTPUT}
+
+### final sort after markdup
+samtools sort -o ${OUTPUT} ${INPUT}
+
+### index
+samtools index ${INPUT}
+
+### 
