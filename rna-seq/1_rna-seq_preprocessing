@@ -23,3 +23,40 @@ cutadapt -f fastq -q 20,20 -u 2 -m 30 -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC \
 
 ### fastqc of cleaned data
 fastqc -o ${OUTPUT} -f fastq ${INPUT}
+
+### mapping with tophat2 (+ bowtie2) to TAIR10
+tophat2 -o ${OUTPUT} \
+-I 15000 \
+-i 10 \
+-G ${GFF} \
+--library-type fr-firststrand \
+/mnt/home/dkko/genomes/arabidopsis_col_tair10_onlyChr/bowtie2.2.3_index/TAIR10_onlyChr \
+${INPUT}
+
+### calculate fpkm with cufflinks
+cufflinks -G ${GFF} \
+-b /mnt/home/dkko/genomes/arabidopsis_col_tair10_onlyChr/bowtie2.2.3_index/TAIR10_onlyChr.fa \
+--library-type fr-firststrand \
+-q \
+-I 15000 \
+-o ${OUTPUT} \
+${INPUT}
+
+### sort accepted_hits.bam
+samtools sort -o ${OUTPUT} -@ 5 ${INPUT} 
+
+### index accepted_hits.sort.bam
+samtools index ${INPUT}
+
+### run htseq count
+htseq-count --format=bam \
+--idattr=ID \
+--order=pos \
+--stranded=reverse \
+--minaqual=10 \
+--mode=union \
+--type=gene \
+${INPUT} ${GFF} > ${OUTPUT}
+
+### perform DESeq2 in R
+provided in a separate file
