@@ -1,6 +1,6 @@
 # UPR-TFs
 
-#The scripts provided in this repository allows to analyze raw (fastq.qz) data for RNA-seq and ChIP-seq presented in our 2021 Nature Plants paper:
+#The scripts provided in this repository allows to analyze raw (fastq.qz) data for RNA-seq and ChIP-seq presented in our 2022 Nature Plants paper:
 
 "Transcriptional competition shapes proteotoxic ER stress resolution"
 
