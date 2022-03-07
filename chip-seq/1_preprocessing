@@ -6,8 +6,8 @@
 #------------------------------------------------------------------------------------
 
 ### examples of fastq files
-INPUT="/mnt/home/dkko/project_1/1_raw_files/${LINE}_R1_001.fastq.gz"
-OUTPUT="/mnt/home/dkko/project_1/3_cleaned_files/${LINE}_cutadapt.fastq"
+INPUT="${LINE}_R1_001.fastq.gz"
+OUTPUT="${LINE}_cutadapt.fastq"
 
 ### m5sum check
 md5sum ${INPUT} > ${INPUT}_md5sum.txt
